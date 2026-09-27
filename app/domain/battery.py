@@ -70,13 +70,16 @@ class Battery:
 
         actual_power_kw = min(power_kw, self.specs.max_charge_kw)
         requested_energy_kwh = actual_power_kw * duration_hours
+
         actual_energy_kwh = min(
             requested_energy_kwh,
             self.available_charge_kwh,
         )
 
-        self.state.soc += actual_energy_kwh / self.specs.capacity_kwh
-        self.state.status = BatteryStatus.CHARGING
+        if actual_energy_kwh > 0:
+            self.state.soc += actual_energy_kwh / self.specs.capacity_kwh
+            self.state.status = BatteryStatus.CHARGING
+
         return actual_energy_kwh
 
     def discharge(self, power_kw: float, duration_hours: float) -> float:
@@ -85,13 +88,16 @@ class Battery:
 
         actual_power_kw = min(power_kw, self.specs.max_discharge_kw)
         requested_energy_kwh = actual_power_kw * duration_hours
+
         actual_energy_kwh = min(
             requested_energy_kwh,
             self.available_discharge_kwh,
         )
 
-        self.state.soc -= actual_energy_kwh / self.specs.capacity_kwh
-        self.state.status = BatteryStatus.DISCHARGING
+        if actual_energy_kwh > 0:
+            self.state.soc -= actual_energy_kwh / self.specs.capacity_kwh
+            self.state.status = BatteryStatus.DISCHARGING
+
         return actual_energy_kwh
 
     def mark_available(self) -> None:
@@ -120,19 +126,18 @@ class Battery:
             raise ValueError("backup_reserve_pct must be between 0 and 1.")
         self.state.backup_reserve_pct = backup_reserve_pct
 
-    def _ensure_available(self) -> None:
-        if not self.is_available:
-            raise RuntimeError(
-                f"Battery {self.battery_id} is not available "
-                f"(health={self.health.value}, status={self.status.value})."
-            )
-
     def _validate_operation(
         self,
         power_kw: float,
         duration_hours: float,
     ) -> None:
-        if power_kw < 0:
-            raise ValueError("Power cannot be negative.")
+        if power_kw <= 0:
+            raise ValueError("power_kw must be greater than zero.")
         if duration_hours <= 0:
-            raise ValueError("Duration must be greater than 0.")
+            raise ValueError("duration_hours must be greater than zero.")
+
+    def _ensure_available(self) -> None:
+        if not self.is_available:
+            raise ValueError(
+                f"Battery {self.battery_id} is not available."
+            )

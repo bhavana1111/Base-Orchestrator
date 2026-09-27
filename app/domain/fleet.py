@@ -1,6 +1,14 @@
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from .battery import Battery
+
+if TYPE_CHECKING:
+    from .energy_transfer import (
+        EnergyTransfer,
+        EnergyTransferResult,
+    )
+    from .grid import Grid
 
 
 @dataclass
@@ -8,6 +16,14 @@ class Fleet:
     """
     Represents a collection of batteries that can be
     controlled as one aggregate resource.
+
+    Fleet is responsible for:
+    - Managing batteries
+    - Providing aggregate fleet state
+    - Executing fleet-level operations
+    - Coordinating energy transfers between batteries
+
+    Fleet does not decide orchestration strategy.
     """
 
     fleet_id: str
@@ -121,6 +137,7 @@ class Fleet:
         duration_hours: float,
     ) -> float:
         self._validate_target(target_power_kw)
+        self._validate_duration(duration_hours)
 
         remaining_power_kw = target_power_kw
         actual_power_kw = 0.0
@@ -155,6 +172,7 @@ class Fleet:
         duration_hours: float,
     ) -> float:
         self._validate_target(target_power_kw)
+        self._validate_duration(duration_hours)
 
         remaining_power_kw = target_power_kw
         actual_power_kw = 0.0
@@ -184,6 +202,65 @@ class Fleet:
         return actual_power_kw
 
     # ----------------------------------------------------------------
+    # Energy Transfer Execution
+    # ----------------------------------------------------------------
+
+    def execute_energy_transfer(
+        self,
+        transfer: "EnergyTransfer",
+        grid: "Grid",
+    ) -> "EnergyTransferResult":
+        """
+        Execute an orchestrator-created energy transfer.
+
+        The physical path is modeled as:
+
+            donor battery
+                    |
+                    | discharge
+                    v
+              grid / charging
+               infrastructure
+                    |
+                    | charge
+                    v
+            recipient battery
+
+        Fleet coordinates the execution but does not decide:
+        - which battery should donate
+        - which battery should receive
+        - how much energy should be transferred
+
+        Those decisions belong to the orchestrator.
+        """
+
+        donor = self.get_battery(
+            transfer.donor_battery_id
+        )
+
+        recipient = self.get_battery(
+            transfer.recipient_battery_id
+        )
+
+        if donor is None:
+            raise ValueError(
+                f"Donor battery "
+                f"{transfer.donor_battery_id} not found."
+            )
+
+        if recipient is None:
+            raise ValueError(
+                f"Recipient battery "
+                f"{transfer.recipient_battery_id} not found."
+            )
+
+        return grid.execute_transfer(
+            donor=donor,
+            recipient=recipient,
+            transfer=transfer,
+        )
+
+    # ----------------------------------------------------------------
     # Validation
     # ----------------------------------------------------------------
 
@@ -191,6 +268,15 @@ class Fleet:
         if target_power_kw < 0:
             raise ValueError(
                 "target_power_kw cannot be negative."
+            )
+
+    def _validate_duration(
+        self,
+        duration_hours: float,
+    ) -> None:
+        if duration_hours <= 0:
+            raise ValueError(
+                "duration_hours must be greater than zero."
             )
 
     def _validate_unique_battery_ids(self) -> None:
