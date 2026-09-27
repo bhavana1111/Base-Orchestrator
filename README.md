@@ -506,6 +506,3 @@ be added later without changing the core Battery model.
 4. Verify the orchestrator continues planning with the remaining available fleet.
 5. Check whether the resulting deficit/coverage reflects the unavailable resources.
 
-## What the judges are really testing
-
-**Can the system take a storm duration → understand the state of the whole fleet → identify who needs help → safely identify who can help → pool energy through the grid → distribute it → manage load when necessary → execute → and re-plan when the fleet changes?**
