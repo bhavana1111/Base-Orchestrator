@@ -5,7 +5,6 @@ from app.domain.battery import (
     BatteryState,
     BatteryStatus,
 )
-from app.domain.energy_transfer import EnergyTransfer, TransferStatus
 from app.domain.grid import Grid, GridConfig
 
 
@@ -24,43 +23,81 @@ def create_battery(battery_id, soc):
     )
 
 
-def test_grid_transfers_energy():
+def test_grid_collects_and_distributes_energy():
     donor = create_battery("BASE-001", 0.80)
     recipient = create_battery("BASE-002", 0.40)
 
-    result = Grid().execute_transfer(
-        donor,
-        recipient,
-        EnergyTransfer("BASE-001", "BASE-002", 5.0, 5.0, 1.0),
+    grid = Grid()
+
+    collection = grid.collect_energy(
+        donor=donor,
+        energy_kwh=5.0,
+        power_kw=5.0,
     )
 
-    assert result.status == TransferStatus.COMPLETED
-    assert result.transferred_energy_kwh == 5.0
+    assert collection.status == "completed"
+    assert collection.collected_energy_kwh == 5.0
+    assert grid.available_energy_kwh == 5.0
+
+    distribution = grid.distribute_energy(
+        recipient=recipient,
+        energy_kwh=5.0,
+        power_kw=5.0,
+    )
+
+    assert distribution.status == "completed"
+    assert distribution.delivered_energy_kwh == 5.0
+
     assert donor.energy_kwh < 39.2 * 0.80
     assert recipient.energy_kwh > 39.2 * 0.40
+    assert grid.available_energy_kwh == 0.0
 
 
 def test_grid_rejects_unavailable_donor():
     donor = create_battery("BASE-001", 0.80)
-    recipient = create_battery("BASE-002", 0.40)
     donor.mark_offline()
 
-    result = Grid().execute_transfer(
-        donor, recipient, EnergyTransfer("BASE-001", "BASE-002", 5.0, 5.0, 1.0)
+    grid = Grid()
+
+    result = grid.collect_energy(
+        donor=donor,
+        energy_kwh=5.0,
+        power_kw=5.0,
     )
 
-    assert result.status == TransferStatus.FAILED
-    assert result.transferred_energy_kwh == 0.0
+    assert result.status == "failed"
+    assert result.collected_energy_kwh == 0.0
+    assert grid.available_energy_kwh == 0.0
 
 
 def test_grid_transfer_efficiency():
     donor = create_battery("BASE-001", 0.80)
     recipient = create_battery("BASE-002", 0.40)
 
-    result = Grid(GridConfig(transfer_efficiency=0.90)).execute_transfer(
-        donor,
-        recipient,
-        EnergyTransfer("BASE-001", "BASE-002", 10.0, 5.0, 2.0),
+    grid = Grid(
+        GridConfig(
+            transfer_efficiency=0.90,
+        )
     )
 
-    assert result.transferred_energy_kwh == 9.0
+    collection = grid.collect_energy(
+        donor=donor,
+        energy_kwh=10.0,
+        power_kw=5.0,
+    )
+
+    assert collection.status == "completed"
+
+    # 10 kWh collected from donor × 90% efficiency
+    # = 9 kWh available in the shared grid pool.
+    assert grid.available_energy_kwh == 9.0
+
+    distribution = grid.distribute_energy(
+        recipient=recipient,
+        energy_kwh=9.0,
+        power_kw=5.0,
+    )
+
+    assert distribution.status == "completed"
+    assert distribution.delivered_energy_kwh == 9.0
+    assert grid.available_energy_kwh == 0.0

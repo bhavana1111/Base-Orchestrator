@@ -1,113 +1,274 @@
 from dataclasses import dataclass
 
 from .battery import Battery
-from .energy_transfer import (
-    EnergyTransfer,
-    EnergyTransferResult,
-    TransferStatus,
-)
+
+EPSILON = 1e-9
 
 
 @dataclass(frozen=True)
 class GridConfig:
+    """
+    Configuration for the shared grid/charging-path simulation.
+
+    transfer_efficiency represents the end-to-end energy retained when
+    energy is collected from a battery into the shared grid pool.
+    """
+
     transfer_efficiency: float = 1.0
 
     def __post_init__(self) -> None:
         if not 0 < self.transfer_efficiency <= 1:
-            raise ValueError("transfer_efficiency must be between 0 and 1.")
+            raise ValueError(
+                "transfer_efficiency must be between 0 and 1."
+            )
+
+
+@dataclass(frozen=True)
+class GridCollectionResult:
+    battery_id: str
+    requested_energy_kwh: float
+    collected_energy_kwh: float
+    status: str
+    reason: str | None = None
+
+
+@dataclass(frozen=True)
+class GridDistributionResult:
+    battery_id: str
+    requested_energy_kwh: float
+    delivered_energy_kwh: float
+    status: str
+    reason: str | None = None
 
 
 class Grid:
     """
-    Simulation abstraction for energy moving through the grid/charging path.
+    Shared energy-pool abstraction.
 
-    This MVP does not model ERCOT topology or real hardware.
+    The storm orchestration model is:
+
+        donor batteries
+              |
+              v
+        +-----------+
+        |   GRID    |
+        | ENERGY    |
+        |   POOL    |
+        +-----------+
+              |
+              v
+        recipient batteries
+
+    The Grid intentionally does not pair a donor with a recipient.
+    It only manages energy entering and leaving the shared pool.
     """
 
     def __init__(self, config: GridConfig | None = None) -> None:
         self.config = config or GridConfig()
+        self._energy_pool_kwh = 0.0
 
-    def execute_transfer(
+    @property
+    def available_energy_kwh(self) -> float:
+        """Energy currently available in the shared grid pool."""
+        return self._energy_pool_kwh
+
+    def reset_pool(self) -> None:
+        """Clear the simulated grid energy pool."""
+        self._energy_pool_kwh = 0.0
+
+    def collect_energy(
         self,
         donor: Battery,
-        recipient: Battery,
-        transfer: EnergyTransfer,
-    ) -> EnergyTransferResult:
+        energy_kwh: float,
+        power_kw: float,
+    ) -> GridCollectionResult:
+        """
+        Collect safe energy from a battery into the shared grid pool.
 
-        def failed(reason: str) -> EnergyTransferResult:
-            return EnergyTransferResult(
-                donor_battery_id=donor.battery_id,
-                recipient_battery_id=recipient.battery_id,
-                requested_energy_kwh=transfer.energy_kwh,
-                transferred_energy_kwh=0.0,
-                status=TransferStatus.FAILED,
-                reason=reason,
+        The donor is responsible for enforcing its own physical limits.
+        The Grid only determines how much can actually be collected and
+        applies the configured grid-path efficiency.
+        """
+
+        if not donor.is_available:
+            return GridCollectionResult(
+                battery_id=donor.battery_id,
+                requested_energy_kwh=energy_kwh,
+                collected_energy_kwh=0.0,
+                status="failed",
+                reason="Donor battery is unavailable.",
             )
 
-        if donor.battery_id == recipient.battery_id:
-            return failed("Donor and recipient cannot be the same battery.")
-        if not donor.is_available:
-            return failed("Donor battery is unavailable.")
-        if not recipient.is_available:
-            return failed("Recipient battery is unavailable.")
-        if transfer.energy_kwh <= 0:
-            return failed("Transfer energy must be greater than zero.")
-        if transfer.power_kw <= 0:
-            return failed("Transfer power must be greater than zero.")
-        if transfer.duration_hours <= 0:
-            return failed("Transfer duration must be greater than zero.")
+        if energy_kwh <= 0:
+            return GridCollectionResult(
+                battery_id=donor.battery_id,
+                requested_energy_kwh=energy_kwh,
+                collected_energy_kwh=0.0,
+                status="failed",
+                reason="Collection energy must be greater than zero.",
+            )
 
-        max_transfer_energy = min(
-            donor.available_discharge_kwh,
-            recipient.available_charge_kwh,
-            transfer.power_kw * transfer.duration_hours,
-            donor.specs.max_discharge_kw * transfer.duration_hours,
-            recipient.specs.max_charge_kw * transfer.duration_hours,
-        )
+        if power_kw <= 0:
+            return GridCollectionResult(
+                battery_id=donor.battery_id,
+                requested_energy_kwh=energy_kwh,
+                collected_energy_kwh=0.0,
+                status="failed",
+                reason="Collection power must be greater than zero.",
+            )
 
-        if max_transfer_energy <= 1e-9:
-            return failed("No transferable energy is currently available.")
-
-        requested_energy = min(
-            transfer.energy_kwh,
-            max_transfer_energy,
-        )
-
-        actual_power_kw = min(
-            transfer.power_kw,
+        max_power_kw = min(
+            power_kw,
             donor.specs.max_discharge_kw,
+        )
+
+        if max_power_kw <= EPSILON:
+            return GridCollectionResult(
+                battery_id=donor.battery_id,
+                requested_energy_kwh=energy_kwh,
+                collected_energy_kwh=0.0,
+                status="failed",
+                reason="Donor has no available discharge power.",
+            )
+
+        max_collectable_energy = min(
+            donor.available_discharge_kwh,
+            energy_kwh,
+        )
+
+        if max_collectable_energy <= EPSILON:
+            return GridCollectionResult(
+                battery_id=donor.battery_id,
+                requested_energy_kwh=energy_kwh,
+                collected_energy_kwh=0.0,
+                status="failed",
+                reason="Donor has no safe energy available.",
+            )
+
+        duration_hours = (
+            max_collectable_energy / max_power_kw
+        )
+
+        discharged_energy = donor.discharge(
+            max_power_kw,
+            duration_hours,
+        )
+
+        # Energy that survives the grid/charging-path efficiency
+        # becomes available in the shared pool.
+        grid_energy = (
+            discharged_energy
+            * self.config.transfer_efficiency
+        )
+
+        self._energy_pool_kwh += grid_energy
+
+        status = (
+            "completed"
+            if discharged_energy + EPSILON >= energy_kwh
+            else "partial"
+        )
+
+        return GridCollectionResult(
+            battery_id=donor.battery_id,
+            requested_energy_kwh=energy_kwh,
+            collected_energy_kwh=grid_energy,
+            status=status,
+        )
+
+    def distribute_energy(
+        self,
+        recipient: Battery,
+        energy_kwh: float,
+        power_kw: float,
+    ) -> GridDistributionResult:
+        """
+        Deliver energy from the shared grid pool to a recipient.
+
+        There is no donor reference here. The source is always the
+        aggregated grid energy pool.
+        """
+
+        if not recipient.is_available:
+            return GridDistributionResult(
+                battery_id=recipient.battery_id,
+                requested_energy_kwh=energy_kwh,
+                delivered_energy_kwh=0.0,
+                status="failed",
+                reason="Recipient battery is unavailable.",
+            )
+
+        if energy_kwh <= 0:
+            return GridDistributionResult(
+                battery_id=recipient.battery_id,
+                requested_energy_kwh=energy_kwh,
+                delivered_energy_kwh=0.0,
+                status="failed",
+                reason="Distribution energy must be greater than zero.",
+            )
+
+        if power_kw <= 0:
+            return GridDistributionResult(
+                battery_id=recipient.battery_id,
+                requested_energy_kwh=energy_kwh,
+                delivered_energy_kwh=0.0,
+                status="failed",
+                reason="Distribution power must be greater than zero.",
+            )
+
+        max_power_kw = min(
+            power_kw,
             recipient.specs.max_charge_kw,
         )
 
-        actual_duration_hours = requested_energy / actual_power_kw
+        if max_power_kw <= EPSILON:
+            return GridDistributionResult(
+                battery_id=recipient.battery_id,
+                requested_energy_kwh=energy_kwh,
+                delivered_energy_kwh=0.0,
+                status="failed",
+                reason="Recipient has no available charge power.",
+            )
 
-        donor_energy = donor.discharge(
-            actual_power_kw,
-            actual_duration_hours,
+        max_deliverable_energy = min(
+            self._energy_pool_kwh,
+            recipient.available_charge_kwh,
+            energy_kwh,
         )
 
-        recipient_energy_requested = (
-            donor_energy * self.config.transfer_efficiency
+        if max_deliverable_energy <= EPSILON:
+            return GridDistributionResult(
+                battery_id=recipient.battery_id,
+                requested_energy_kwh=energy_kwh,
+                delivered_energy_kwh=0.0,
+                status="failed",
+                reason="No grid energy or recipient charge capacity is available.",
+            )
+
+        duration_hours = (
+            max_deliverable_energy / max_power_kw
         )
 
-        actual_recipient_energy = recipient.charge(
-            actual_power_kw,
-            recipient_energy_requested / actual_power_kw,
+        actual_delivered_energy = recipient.charge(
+            max_power_kw,
+            duration_hours,
         )
 
-        if actual_recipient_energy <= 1e-9:
-            return failed("Transfer produced no delivered energy.")
+        self._energy_pool_kwh = max(
+            0.0,
+            self._energy_pool_kwh
+            - actual_delivered_energy,
+        )
 
         status = (
-            TransferStatus.COMPLETED
-            if actual_recipient_energy + 1e-9 >= transfer.energy_kwh
-            else TransferStatus.PARTIAL
+            "completed"
+            if actual_delivered_energy + EPSILON >= energy_kwh
+            else "partial"
         )
 
-        return EnergyTransferResult(
-            donor_battery_id=donor.battery_id,
-            recipient_battery_id=recipient.battery_id,
-            requested_energy_kwh=transfer.energy_kwh,
-            transferred_energy_kwh=actual_recipient_energy,
+        return GridDistributionResult(
+            battery_id=recipient.battery_id,
+            requested_energy_kwh=energy_kwh,
+            delivered_energy_kwh=actual_delivered_energy,
             status=status,
         )

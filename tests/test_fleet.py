@@ -6,9 +6,7 @@ from app.domain.battery_health import BatteryHealth
 from app.domain.battery_specs import BatterySpecs
 from app.domain.battery_state import BatteryState
 from app.domain.battery_status import BatteryStatus
-from app.domain.energy_transfer import EnergyTransfer
 from app.domain.fleet import Fleet
-from app.domain.grid import Grid
 
 
 def create_fleet(count: int = 100) -> Fleet:
@@ -443,11 +441,16 @@ def test_fleet_discharge_distributes_power_across_batteries():
 
 
 # -------------------------------------------------------------------
-# Fleet Energy Transfer
+# Fleet Responsibilities
 # -------------------------------------------------------------------
 
+# Fleet intentionally does not expose donor -> recipient transfer
+# operations. Battery-to-battery orchestration belongs to the
+# orchestrator, while Grid owns collection/distribution through the
+# shared energy pool.
 
-def test_fleet_can_execute_energy_transfer():
+
+def test_fleet_exposes_batteries_for_orchestration():
     fleet = create_fleet()
 
     donor = fleet.get_battery("BASE-001")
@@ -455,131 +458,13 @@ def test_fleet_can_execute_energy_transfer():
 
     assert donor is not None
     assert recipient is not None
-
-    initial_donor_energy = donor.energy_kwh
-    initial_recipient_energy = recipient.energy_kwh
-
-    transfer = EnergyTransfer(
-        donor_battery_id="BASE-001",
-        recipient_battery_id="BASE-002",
-        energy_kwh=5.0,
-        power_kw=5.0,
-        duration_hours=1.0,
-    )
-
-    grid = Grid()
-
-    result = fleet.execute_energy_transfer(
-        transfer=transfer,
-        grid=grid,
-    )
-
-    assert result.transferred_energy_kwh == pytest.approx(5.0)
-    assert donor.energy_kwh < initial_donor_energy
-    assert recipient.energy_kwh > initial_recipient_energy
+    assert donor is not recipient
 
 
-def test_fleet_energy_transfer_updates_correct_batteries():
+def test_fleet_does_not_coordinate_battery_to_battery_transfers():
     fleet = create_fleet()
 
-    donor = fleet.get_battery("BASE-001")
-    recipient = fleet.get_battery("BASE-002")
-    unrelated = fleet.get_battery("BASE-003")
-
-    assert donor is not None
-    assert recipient is not None
-    assert unrelated is not None
-
-    initial_donor_energy = donor.energy_kwh
-    initial_recipient_energy = recipient.energy_kwh
-    initial_unrelated_energy = unrelated.energy_kwh
-
-    transfer = EnergyTransfer(
-        donor_battery_id="BASE-001",
-        recipient_battery_id="BASE-002",
-        energy_kwh=5.0,
-        power_kw=5.0,
-        duration_hours=1.0,
-    )
-
-    grid = Grid()
-
-    fleet.execute_energy_transfer(
-        transfer=transfer,
-        grid=grid,
-    )
-
-    assert donor.energy_kwh < initial_donor_energy
-    assert recipient.energy_kwh > initial_recipient_energy
-    assert unrelated.energy_kwh == pytest.approx(
-        initial_unrelated_energy
-    )
-
-
-def test_fleet_energy_transfer_missing_donor_is_rejected():
-    fleet = create_fleet()
-
-    transfer = EnergyTransfer(
-        donor_battery_id="BASE-999",
-        recipient_battery_id="BASE-002",
-        energy_kwh=5.0,
-        power_kw=5.0,
-        duration_hours=1.0,
-    )
-
-    grid = Grid()
-
-    with pytest.raises(ValueError, match="Donor battery"):
-        fleet.execute_energy_transfer(
-            transfer=transfer,
-            grid=grid,
-        )
-
-
-def test_fleet_energy_transfer_missing_recipient_is_rejected():
-    fleet = create_fleet()
-
-    transfer = EnergyTransfer(
-        donor_battery_id="BASE-001",
-        recipient_battery_id="BASE-999",
-        energy_kwh=5.0,
-        power_kw=5.0,
-        duration_hours=1.0,
-    )
-
-    grid = Grid()
-
-    with pytest.raises(ValueError, match="Recipient battery"):
-        fleet.execute_energy_transfer(
-            transfer=transfer,
-            grid=grid,
-        )
-
-
-def test_fleet_energy_transfer_with_unavailable_donor():
-    fleet = create_fleet()
-
-    donor = fleet.get_battery("BASE-025")
-
-    assert donor is not None
-    assert donor.is_available is False
-
-    transfer = EnergyTransfer(
-        donor_battery_id="BASE-025",
-        recipient_battery_id="BASE-001",
-        energy_kwh=5.0,
-        power_kw=5.0,
-        duration_hours=1.0,
-    )
-
-    grid = Grid()
-
-    result = fleet.execute_energy_transfer(
-        transfer=transfer,
-        grid=grid,
-    )
-
-    assert result.transferred_energy_kwh == pytest.approx(0.0)
+    assert not hasattr(fleet, "execute_energy_transfer")
 
 
 # -------------------------------------------------------------------

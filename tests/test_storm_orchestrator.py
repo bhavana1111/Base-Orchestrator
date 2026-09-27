@@ -25,7 +25,7 @@ def create_battery(battery_id, soc, home_load_kw=2.0):
     )
 
 
-def test_orchestrator_creates_transfer_plan():
+def test_orchestrator_creates_grid_pool_plan():
     donor = create_battery("BASE-001", 0.90)
     recipient = create_battery("BASE-002", 0.40)
 
@@ -33,9 +33,17 @@ def test_orchestrator_creates_transfer_plan():
         [donor, recipient], 4
     )
 
-    assert len(plan.transfers) > 0
-    assert plan.transfers[0].donor_battery_id == "BASE-001"
-    assert plan.transfers[0].recipient_battery_id == "BASE-002"
+    # The donor contributes to the shared grid pool.
+    assert len(plan.grid_contributions) > 0
+    assert plan.grid_contributions[0].battery_id == "BASE-001"
+
+    # The recipient receives energy from the grid pool.
+    assert len(plan.grid_distributions) > 0
+    assert plan.grid_distributions[0].battery_id == "BASE-002"
+
+    # There is no donor -> recipient transfer object anymore.
+    assert plan.total_grid_energy_kwh > 0
+    assert plan.total_distributed_energy_kwh > 0
 
 
 def test_degraded_battery_is_not_selected_as_donor():
@@ -47,7 +55,10 @@ def test_degraded_battery_is_not_selected_as_donor():
         [donor, recipient], 4
     )
 
-    assert all(t.donor_battery_id != "BASE-001" for t in plan.transfers)
+    assert all(
+        contribution.battery_id != "BASE-001"
+        for contribution in plan.grid_contributions
+    )
 
 
 def test_unavailable_battery_is_not_recipient():
@@ -59,10 +70,13 @@ def test_unavailable_battery_is_not_recipient():
         [donor, recipient], 4
     )
 
-    assert all(t.recipient_battery_id != "BASE-002" for t in plan.transfers)
+    assert all(
+        distribution.battery_id != "BASE-002"
+        for distribution in plan.grid_distributions
+    )
 
 
-def test_execute_plan_moves_energy():
+def test_execute_plan_moves_energy_through_grid_pool():
     donor = create_battery("BASE-001", 0.90)
     recipient = create_battery("BASE-002", 0.40)
 
@@ -76,7 +90,8 @@ def test_execute_plan_moves_energy():
 
     report = orchestrator.execute_plan(fleet, Grid(), plan)
 
-    assert report.transferred_energy_kwh > 0
+    assert report.collected_energy_kwh > 0
+    assert report.distributed_energy_kwh > 0
     assert donor.energy_kwh < donor_before
     assert recipient.energy_kwh > recipient_before
 
@@ -86,12 +101,21 @@ def test_replan_after_donor_failure():
     donor_2 = create_battery("BASE-002", 0.85)
     recipient = create_battery("BASE-003", 0.40)
 
-    fleet = Fleet("FLEET-001", [donor_1, donor_2, recipient])
+    fleet = Fleet(
+        "FLEET-001",
+        [donor_1, donor_2, recipient],
+    )
     orchestrator = StormReadinessOrchestrator()
 
     donor_1.mark_failed()
 
     plan = orchestrator.replan(fleet, 4)
 
-    assert all(t.donor_battery_id != "BASE-001" for t in plan.transfers)
-    assert any(t.donor_battery_id == "BASE-002" for t in plan.transfers)
+    assert all(
+        contribution.battery_id != "BASE-001"
+        for contribution in plan.grid_contributions
+    )
+    assert any(
+        contribution.battery_id == "BASE-002"
+        for contribution in plan.grid_contributions
+    )

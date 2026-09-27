@@ -14,18 +14,33 @@ from app.domain.storm_orchestrator import StormReadinessOrchestrator
 
 router = APIRouter(prefix="/api/storm", tags=["storm"])
 
+
+# ---------------------------------------------------------------------------
+# Fabricated fleet
+# ---------------------------------------------------------------------------
+
 fleet = Fleet(
     fleet_id="FLEET-001",
     batteries=[],
 )
 
 _specs = BatterySpecs()
+
 for index in range(1, 101):
     soc = 0.40 + ((index - 1) % 10) * 0.05
     home_load_kw = 2.0 + ((index - 1) % 10) * 0.5
 
-    health = BatteryHealth.DEGRADED if index in {20, 40, 60, 80} else BatteryHealth.HEALTHY
-    status = BatteryStatus.OFFLINE if index in {25, 50, 75, 100} else BatteryStatus.AVAILABLE
+    health = (
+        BatteryHealth.DEGRADED
+        if index in {20, 40, 60, 80}
+        else BatteryHealth.HEALTHY
+    )
+
+    status = (
+        BatteryStatus.OFFLINE
+        if index in {25, 50, 75, 100}
+        else BatteryStatus.AVAILABLE
+    )
 
     if index in {30, 90}:
         health = BatteryHealth.FAILED
@@ -46,9 +61,14 @@ for index in range(1, 101):
         )
     )
 
+
 orchestrator = StormReadinessOrchestrator()
 grid = Grid()
 
+
+# ---------------------------------------------------------------------------
+# API request models
+# ---------------------------------------------------------------------------
 
 class StormPlanRequest(BaseModel):
     storm_duration_hours: float = Field(gt=0)
@@ -59,48 +79,272 @@ class ExecutePlanRequest(StormPlanRequest):
     pass
 
 
+# ---------------------------------------------------------------------------
+# Response mapping
+# ---------------------------------------------------------------------------
+
 def _plan_response(plan):
     return {
         "ready": plan.is_ready,
+        "is_ready": plan.is_ready,
         "coverage_pct": round(plan.coverage_pct, 2),
-        "total_energy_needed_kwh": round(plan.total_energy_needed_kwh, 3),
-        "total_safe_surplus_kwh": round(plan.total_safe_surplus_kwh, 3),
-        "total_planned_transfer_kwh": round(plan.total_planned_transfer_kwh, 3),
-        "unfulfilled_deficit_kwh": round(plan.unfulfilled_deficit_kwh, 3),
+
+        # ------------------------------------------------------------------
+        # Fleet-level energy summary
+        # ------------------------------------------------------------------
+
+        "total_energy_needed_kwh": round(
+            plan.total_energy_needed_kwh,
+            3,
+        ),
+        "total_safe_surplus_kwh": round(
+            plan.total_safe_surplus_kwh,
+            3,
+        ),
+        "total_grid_energy_kwh": round(
+            plan.total_grid_energy_kwh,
+            3,
+        ),
+        "total_distributed_energy_kwh": round(
+            plan.total_distributed_energy_kwh,
+            3,
+        ),
+        "total_planned_transfer_kwh": round(
+            plan.total_planned_transfer_kwh,
+            3,
+        ),
+        "unfulfilled_deficit_kwh": round(
+            plan.unfulfilled_deficit_kwh,
+            3,
+        ),
+
+        # ------------------------------------------------------------------
+        # Fleet-level classifications
+        # ------------------------------------------------------------------
+
+        "load_manageable_batteries": [
+            {
+                "battery_id": assessment.battery_id,
+                "current_energy_kwh": round(
+                    assessment.current_energy_kwh,
+                    3,
+                ),
+                "current_load_kw": round(
+                    assessment.current_home_load_kw,
+                    3,
+                ),
+                "sustainable_load_kw": round(
+                    assessment.sustainable_load_kw,
+                    3,
+                ),
+            }
+            for assessment in plan.load_manageable_batteries
+        ],
+
+        # ------------------------------------------------------------------
+        # Recipients
+        #
+        # Batteries that cannot sustain their storm requirement
+        # from their own available energy/load profile.
+        # ------------------------------------------------------------------
+
+        "recipients": [
+            {
+                "battery_id": assessment.battery_id,
+                "current_energy_kwh": round(
+                    assessment.current_energy_kwh,
+                    3,
+                ),
+                "required_energy_kwh": round(
+                    assessment.required_energy_kwh,
+                    3,
+                ),
+                "deficit_kwh": round(
+                    assessment.deficit_kwh,
+                    3,
+                ),
+                "current_load_kw": round(
+                    assessment.current_home_load_kw,
+                    3,
+                ),
+                "sustainable_load_kw": round(
+                    assessment.sustainable_load_kw,
+                    3,
+                ),
+            }
+            for assessment in plan.recipient_batteries
+        ],
+
+        # ------------------------------------------------------------------
+        # Donors
+        #
+        # Donors are selected only after recipients have been identified.
+        # Recipients are therefore excluded from this list.
+        # ------------------------------------------------------------------
+
+        "donors": [
+            {
+                "battery_id": assessment.battery_id,
+                "current_energy_kwh": round(
+                    assessment.current_energy_kwh,
+                    3,
+                ),
+                "safe_surplus_kwh": round(
+                    assessment.safe_surplus_kwh,
+                    3,
+                ),
+            }
+            for assessment in plan.donor_batteries
+        ],
+
+        # ------------------------------------------------------------------
+        # Detailed assessment for every battery
+        # ------------------------------------------------------------------
+
         "assessments": [
             {
-                "battery_id": a.battery_id,
-                "current_energy_kwh": round(a.current_energy_kwh, 3),
-                "required_energy_kwh": round(a.required_energy_kwh, 3),
-                "deficit_kwh": round(a.deficit_kwh, 3),
-                "safe_surplus_kwh": round(a.safe_surplus_kwh, 3),
-                "unachievable_energy_kwh": round(a.unachievable_energy_kwh, 3),
-                "participation_eligible": a.participation_eligible,
+                "battery_id": assessment.battery_id,
+
+                "current_energy_kwh": round(
+                    assessment.current_energy_kwh,
+                    3,
+                ),
+
+                "current_load_required_energy_kwh": round(
+                    assessment.current_load_required_energy_kwh,
+                    3,
+                ),
+
+                "required_energy_kwh": round(
+                    assessment.required_energy_kwh,
+                    3,
+                ),
+
+                "deficit_kwh": round(
+                    assessment.deficit_kwh,
+                    3,
+                ),
+
+                "safe_surplus_kwh": round(
+                    assessment.safe_surplus_kwh,
+                    3,
+                ),
+
+                "unachievable_energy_kwh": round(
+                    assessment.unachievable_energy_kwh,
+                    3,
+                ),
+
+                "participation_eligible": (
+                    assessment.participation_eligible
+                ),
+
+                "current_load_kw": round(
+                    assessment.current_home_load_kw,
+                    3,
+                ),
+
+                "sustainable_load_kw": round(
+                    assessment.sustainable_load_kw,
+                    3,
+                ),
+
+                "can_manage_with_load": (
+                    assessment.can_manage_with_load
+                ),
+
+                "needs_energy": assessment.needs_energy,
+
+                "can_provide_energy": (
+                    assessment.can_provide_energy
+                ),
+
+                "is_ready": assessment.is_ready,
             }
-            for a in plan.assessments
+            for assessment in plan.assessments
         ],
-        "transfers": [
+
+        # ------------------------------------------------------------------
+        # Grid energy contribution plan
+        #
+        # Donor -> GRID POOL
+        # ------------------------------------------------------------------
+
+        "grid_contributions": [
             {
-                "donor_battery_id": t.donor_battery_id,
-                "recipient_battery_id": t.recipient_battery_id,
-                "energy_kwh": round(t.energy_kwh, 3),
-                "power_kw": round(t.power_kw, 3),
-                "duration_hours": round(t.duration_hours, 3),
+                "battery_id": contribution.battery_id,
+                "energy_kwh": round(
+                    contribution.energy_kwh,
+                    3,
+                ),
+                "power_kw": round(
+                    contribution.power_kw,
+                    3,
+                ),
+                "duration_hours": round(
+                    contribution.duration_hours,
+                    3,
+                ),
             }
-            for t in plan.transfers
+            for contribution in plan.grid_contributions
         ],
+
+        # ------------------------------------------------------------------
+        # Grid energy distribution plan
+        #
+        # GRID POOL -> RECIPIENT
+        # ------------------------------------------------------------------
+
+        "grid_distributions": [
+            {
+                "battery_id": distribution.battery_id,
+                "energy_kwh": round(
+                    distribution.energy_kwh,
+                    3,
+                ),
+                "power_kw": round(
+                    distribution.power_kw,
+                    3,
+                ),
+                "duration_hours": round(
+                    distribution.duration_hours,
+                    3,
+                ),
+            }
+            for distribution in plan.grid_distributions
+        ],
+
+        # ------------------------------------------------------------------
+        # Load management
+        # ------------------------------------------------------------------
+
         "load_recommendations": [
             {
-                "battery_id": r.battery_id,
-                "current_load_kw": r.current_load_kw,
-                "recommended_max_load_kw": r.recommended_max_load_kw,
-                "reduction_kw": r.reduction_kw,
-                "storm_duration_hours": r.storm_duration_hours,
+                "battery_id": recommendation.battery_id,
+                "current_load_kw": round(
+                    recommendation.current_load_kw,
+                    3,
+                ),
+                "recommended_max_load_kw": round(
+                    recommendation.recommended_max_load_kw,
+                    3,
+                ),
+                "reduction_kw": round(
+                    recommendation.reduction_kw,
+                    3,
+                ),
+                "storm_duration_hours": (
+                    recommendation.storm_duration_hours
+                ),
             }
-            for r in plan.load_recommendations
+            for recommendation in plan.load_recommendations
         ],
     }
 
+
+# ---------------------------------------------------------------------------
+# Create storm plan
+# ---------------------------------------------------------------------------
 
 @router.post("/plan")
 def create_storm_plan(request: StormPlanRequest):
@@ -109,11 +353,16 @@ def create_storm_plan(request: StormPlanRequest):
         storm_duration_hours=request.storm_duration_hours,
         transfer_power_kw=request.transfer_power_kw,
     )
+
     return _plan_response(plan)
 
 
+# ---------------------------------------------------------------------------
+# Execute storm plan
+# ---------------------------------------------------------------------------
+
 @router.post("/execute")
-def execute_storm_plan(request: StormPlanRequest):
+def execute_storm_plan(request: ExecutePlanRequest):
     plan = orchestrator.create_plan(
         batteries=fleet.batteries,
         storm_duration_hours=request.storm_duration_hours,
@@ -128,24 +377,36 @@ def execute_storm_plan(request: StormPlanRequest):
 
     return {
         "plan": _plan_response(plan),
+
         "execution": {
-            "transferred_energy_kwh": round(report.transferred_energy_kwh, 3),
-            "failed_transfer_count": report.failed_transfer_count,
-            "partial_transfer_count": report.partial_transfer_count,
-            "results": [
-                {
-                    "donor_battery_id": r.donor_battery_id,
-                    "recipient_battery_id": r.recipient_battery_id,
-                    "requested_energy_kwh": round(r.requested_energy_kwh, 3),
-                    "transferred_energy_kwh": round(r.transferred_energy_kwh, 3),
-                    "status": r.status.value,
-                    "reason": r.reason,
-                }
-                for r in report.results
-            ],
+            "collected_energy_kwh": round(
+                report.collected_energy_kwh,
+                3,
+            ),
+            "distributed_energy_kwh": round(
+                report.distributed_energy_kwh,
+                3,
+            ),
+            "failed_operation_count": (
+                report.failed_operation_count
+            ),
+            "partial_operation_count": (
+                report.partial_operation_count
+            ),
+
+            "grid_energy_pool_kwh": round(
+                grid.available_energy_kwh,
+                3,
+            ),
+
+            "results": report.results,
         },
     }
 
+
+# ---------------------------------------------------------------------------
+# Replan
+# ---------------------------------------------------------------------------
 
 @router.post("/replan")
 def replan(request: StormPlanRequest):
@@ -154,4 +415,5 @@ def replan(request: StormPlanRequest):
         storm_duration_hours=request.storm_duration_hours,
         transfer_power_kw=request.transfer_power_kw,
     )
+
     return _plan_response(plan)
