@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes.fleet import router as fleet_router
 from app.api.routes.storm import router as storm_router
+from app.api.maintenance_router import router as maintenance_router
 
 app = FastAPI(
     title="Base Fleet Orchestrator API",
@@ -19,6 +20,7 @@ app.add_middleware(
 
 app.include_router(fleet_router)
 app.include_router(storm_router)
+app.include_router(maintenance_router)
 
 @app.get("/health")
 def health() -> dict[str, str]:
