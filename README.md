@@ -461,3 +461,51 @@ The resulting system provides an end-to-end resilience workflow:
 
 The architecture is designed so that additional orchestration strategies can
 be added later without changing the core Battery model.
+
+# Storm Readiness — Judge Testing Guide
+
+## What the judges should test
+
+### Test 1 — Normal Storm
+1. Open **Storm Readiness**.
+2. Enter **12 hours** storm duration and **5 kW** transfer power.
+3. Click **Analyze Storm**.
+4. Check the **Readiness, Energy Needed, Safe Surplus, Grid Energy, and Coverage** metrics.
+5. Review the **Recipients** and **Donors** sections.
+6. Confirm recipients are batteries with an energy deficit.
+7. Confirm recipients are **not also listed as donors**.
+8. Check that donor energy appears in the **Grid Energy Pool**.
+9. Click **Execute Plan** and verify collected/distributed energy.
+10. Click **Replan** and verify the fleet is reassessed using its new state.
+
+### Test 2 — Short Storm
+1. Enter **4 hours**.
+2. Click **Analyze Storm**.
+3. Compare the donor/recipient breakdown with the 12-hour scenario.
+4. Check whether more batteries can satisfy their own requirements.
+5. Verify safe surplus is recalculated.
+
+### Test 3 — Long Storm
+1. Enter **24 or 48 hours**.
+2. Click **Analyze Storm**.
+3. Look for increased energy requirements/deficits.
+4. Check **Unfulfilled Deficit**.
+5. Verify the system does **not claim full readiness when available energy is insufficient**.
+
+### Test 4 — Load Management
+1. Analyze a longer storm.
+2. Find a battery that cannot sustain its current load.
+3. Open its assessment.
+4. Check **Current Load** vs **Sustainable Load**.
+5. Verify a load-management recommendation is provided.
+
+### Test 5 — Failure / Availability
+1. Review batteries marked **offline/failed**.
+2. Run Storm Analysis.
+3. Verify unavailable batteries are not selected as donors.
+4. Verify the orchestrator continues planning with the remaining available fleet.
+5. Check whether the resulting deficit/coverage reflects the unavailable resources.
+
+## What the judges are really testing
+
+**Can the system take a storm duration → understand the state of the whole fleet → identify who needs help → safely identify who can help → pool energy through the grid → distribute it → manage load when necessary → execute → and re-plan when the fleet changes?**
