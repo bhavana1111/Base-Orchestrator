@@ -16,7 +16,6 @@ router = APIRouter(prefix="/api/storm", tags=["storm"])
 # operating on the exact same Battery objects.
 from app.api.routes.fleet import fleet
 
-
 # ---------------------------------------------------------------------------
 # API request models
 # ---------------------------------------------------------------------------

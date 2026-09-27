@@ -1482,7 +1482,6 @@ function StormDashboard() {
                   <thead>
                     <tr>
                       <th>Battery</th>
-                      <th>SOC</th>
                       <th>Current Energy</th>
                       <th>Required</th>
                       <th>Deficit</th>
@@ -1499,23 +1498,20 @@ function StormDashboard() {
                       const required =
                         Number(assessment.required_energy_kwh || 0);
 
-                      const capacity =
-                        Math.max(required, current, 1);
-
-                      const socPercent = Math.min(
-                        100,
-                        Math.max(
-                          0,
-                          (current / capacity) * 100
-                        )
-                      );
-
-                      const isReady =
-                        !assessment.needs_energy &&
-                        assessment.participation_eligible;
-
                       const isUnavailable =
                         !assessment.participation_eligible;
+
+                      // Use backend readiness when available. Fall back to
+                      // the existing assessment fields for compatibility.
+                      const isReady =
+                        assessment.is_ready ??
+                        (!assessment.needs_energy &&
+                          assessment.participation_eligible);
+
+                      const needsEnergy =
+                        assessment.needs_energy ??
+                        (!isReady &&
+                          Number(assessment.deficit_kwh || 0) > 0);
 
                       return (
                         <tr key={assessment.battery_id}>
@@ -1523,27 +1519,6 @@ function StormDashboard() {
                             <strong>
                               {assessment.battery_id}
                             </strong>
-                          </td>
-
-                          <td>
-                            <div
-                              style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: "8px",
-                              }}
-                            >
-                              <div className="soc-bar">
-                                <div
-                                  className="soc-fill"
-                                  style={{
-                                    width: `${socPercent}%`,
-                                  }}
-                                />
-                              </div>
-
-                              {socPercent.toFixed(0)}%
-                            </div>
                           </td>
 
                           <td>
@@ -1582,7 +1557,9 @@ function StormDashboard() {
                                 ? "Unavailable"
                                 : isReady
                                   ? "Ready"
-                                  : "Needs Energy"}
+                                  : needsEnergy
+                                    ? "Needs Energy"
+                                    : "At Risk"}
                             </span>
                           </td>
                         </tr>
