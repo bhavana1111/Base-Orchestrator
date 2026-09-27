@@ -1,14 +1,6 @@
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
-from app.domain.battery import (
-    Battery,
-    BatteryHealth,
-    BatterySpecs,
-    BatteryState,
-    BatteryStatus,
-)
-from app.domain.fleet import Fleet
 from app.domain.grid import Grid
 from app.domain.storm_orchestrator import StormReadinessOrchestrator
 
@@ -16,59 +8,22 @@ router = APIRouter(prefix="/api/storm", tags=["storm"])
 
 
 # ---------------------------------------------------------------------------
-# Fabricated fleet
+# Shared application fleet
 # ---------------------------------------------------------------------------
 
-fleet = Fleet(
-    fleet_id="FLEET-001",
-    batteries=[],
-)
-
-_specs = BatterySpecs()
-
-for index in range(1, 101):
-    soc = 0.40 + ((index - 1) % 10) * 0.05
-    home_load_kw = 2.0 + ((index - 1) % 10) * 0.5
-
-    health = (
-        BatteryHealth.DEGRADED
-        if index in {20, 40, 60, 80}
-        else BatteryHealth.HEALTHY
-    )
-
-    status = (
-        BatteryStatus.OFFLINE
-        if index in {25, 50, 75, 100}
-        else BatteryStatus.AVAILABLE
-    )
-
-    if index in {30, 90}:
-        health = BatteryHealth.FAILED
-        status = BatteryStatus.OFFLINE
-
-    fleet.add_battery(
-        Battery(
-            battery_id=f"BASE-{index:03d}",
-            home_id=f"HOME-{index:03d}",
-            specs=_specs,
-            state=BatteryState(
-                soc=soc,
-                health=health,
-                status=status,
-                home_load_kw=home_load_kw,
-                backup_reserve_pct=0.30 + ((index - 1) % 6) * 0.05,
-            ),
-        )
-    )
-
-
-orchestrator = StormReadinessOrchestrator()
-grid = Grid()
+# Use the same in-memory Fleet instance as the Fleet API.
+# This keeps Fleet Monitoring, Storm Readiness, Execute, and Replan
+# operating on the exact same Battery objects.
+from app.api.routes.fleet import fleet
 
 
 # ---------------------------------------------------------------------------
 # API request models
 # ---------------------------------------------------------------------------
+
+
+orchestrator = StormReadinessOrchestrator()
+grid = Grid()
 
 class StormPlanRequest(BaseModel):
     storm_duration_hours: float = Field(gt=0)
