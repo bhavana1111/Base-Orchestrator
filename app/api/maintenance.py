@@ -8,7 +8,6 @@ from app.domain.maintenance import (
     WorkerStatus,
 )
 
-
 router = APIRouter(
     prefix="/api/maintenance",
     tags=["maintenance"],

@@ -1,9 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.maintenance_router import router as maintenance_router
 from app.api.routes.fleet import router as fleet_router
 from app.api.routes.storm import router as storm_router
-from app.api.maintenance_router import router as maintenance_router
 
 app = FastAPI(
     title="Base Fleet Orchestrator API",
