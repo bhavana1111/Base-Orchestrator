@@ -1,10 +1,16 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
+from app.domain.battery import (
+    Battery,
+    BatteryHealth,
+    BatterySpecs,
+    BatteryState,
+    BatteryStatus,
+)
 from app.domain.fleet import Fleet
 from app.domain.grid import Grid
 from app.domain.storm_orchestrator import StormReadinessOrchestrator
-from app.domain.battery import BatteryHealth, BatteryStatus, BatterySpecs, BatteryState, Battery
 
 router = APIRouter(prefix="/api/storm", tags=["storm"])
 

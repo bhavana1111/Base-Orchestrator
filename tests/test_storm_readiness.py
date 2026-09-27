@@ -1,4 +1,10 @@
-from app.domain.battery import Battery, BatteryHealth, BatterySpecs, BatteryState, BatteryStatus
+from app.domain.battery import (
+    Battery,
+    BatteryHealth,
+    BatterySpecs,
+    BatteryState,
+    BatteryStatus,
+)
 from app.domain.storm_readiness import StormReadinessService
 
 
