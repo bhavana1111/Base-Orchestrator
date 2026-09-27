@@ -4,7 +4,6 @@ from pydantic import BaseModel
 from app.domain.battery_factory import create_fabricated_batteries
 from app.domain.fleet import Fleet
 
-
 router = APIRouter(
     prefix="/api/fleet",
     tags=["fleet"],
